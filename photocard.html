@@ -73,7 +73,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 button.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent;font-weight:600;padding:11px 14px;width:100%;font-size:14px}
 button.primary:hover{background:var(--accent-deep)}
 button[disabled]{opacity:.6;cursor:progress}
-.seg{display:grid;grid-template-columns:1fr 1fr;gap:3px;background:var(--line);border-radius:9px;padding:3px}
+.seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:3px;background:var(--line);border-radius:9px;padding:3px}
 .seg button{border:0;background:transparent;border-radius:7px;padding:7px;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--glass);color:var(--fg);box-shadow:0 1px 3px var(--shadow);font-weight:600}
 .seg i{display:inline-block;border:1.5px solid currentColor;border-radius:2px}
@@ -141,7 +141,8 @@ button[disabled]{opacity:.6;cursor:progress}
         </div>
         <div class="seg" role="group" aria-label="카드 배치">
           <button id="jGap" aria-pressed="true">간격 두기</button>
-          <button id="jJoin" aria-pressed="false">붙이기 · 칼질 최소</button>
+          <button id="jJoin" aria-pressed="false">붙이기</button>
+          <button id="jCorner" aria-pressed="false">모서리 붙이기</button>
         </div>
         <p class="hint" id="orientHint">세로 포카 두 장이 나란히 들어가요.</p>
       </div>
@@ -209,6 +210,13 @@ button[disabled]{opacity:.6;cursor:progress}
             <li><b>4</b>: 카드끼리 붙은 변. 표시가 이미 잘려 나갔으니 <b>그림과 그림이 맞닿은 경계</b>에 칼날을 맞추기. 붙은 변에는 도련이 없어서 빗나가면 옆 그림이 조금 남아요.</li>
             <li>마지막으로 R3 코너 커터로 모서리 둥글게.</li>
           </ol>
+          <ol id="stepsCorner" hidden>
+            <li>카드가 용지 왼쪽 위 모서리에 붙어 있어서 <b>위·왼쪽 변은 자르지 않아요</b>. 용지 끝이 곧 재단선이에요.</li>
+            <li><b>1</b>: 용지 끝을 재단기 가이드에 붙이고, 여백의 재단 표시에 맞춰 자르기.</li>
+            <li><b>2</b>: 도련의 <b>홈</b>에서 색이 바뀌는 경계에 칼날을 맞추기. (홈을 껐다면 용지 끝에서 잰 길이)</li>
+            <li><b>3</b>: 카드끼리 붙은 변. <b>그림과 그림이 맞닿은 경계</b>에 칼날을 맞추기.</li>
+            <li>마지막으로 R3 코너 커터로 모서리 둥글게.</li>
+          </ol>
         </div>
         <div>
           <h3>인화 맡길 때</h3>
@@ -226,7 +234,7 @@ button[disabled]{opacity:.6;cursor:progress}
 
 <script>
 const CW=55, CH=85, GAP=10;
-const opt={bleed:1,mode:'stretch',marks:true,notch:true,round:true,paper:'4x6',orient:'land',join:false};
+const opt={bleed:1,mode:'stretch',marks:true,notch:true,round:true,paper:'4x6',orient:'land',join:false,corner:false};
 const slots=[0,1,2,3].map(()=>({img:null,zoom:1,ox:0,oy:0,rot:0,sample:true,name:''}));
 const sheet=document.getElementById('sheet'), sctx=sheet.getContext('2d');
 let L;   // set by setPaper() at init
@@ -238,9 +246,9 @@ const PAPERS={
 };
 function layout(){
   const [PW,PH,turn,cols,rows]=PAPERS[opt.paper][opt.orient],w=turn?CH:CW,h=turn?CW:CH;
-  const g=opt.join?0:GAP,x0=(PW-cols*w-(cols-1)*g)/2,y0=(PH-rows*h-(rows-1)*g)/2,cards=[];
+  const g=opt.join?0:GAP,x0=opt.corner?0:(PW-cols*w-(cols-1)*g)/2,y0=opt.corner?0:(PH-rows*h-(rows-1)*g)/2,cards=[];
   for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)cards.push({x:x0+c*(w+g),y:y0+r*(h+g),w,h,r,c});
-  return{PW,PH,turn,cols,rows,cards,minX:x0,minY:y0,maxX:PW-x0,maxY:PH-y0};
+  return{PW,PH,turn,cols,rows,cards,minX:x0,minY:y0,maxX:x0+cols*w+(cols-1)*g,maxY:y0+rows*h+(rows-1)*g};
 }
 /* which edges of a card face the outside; in join mode the shared edges get no bleed, no notch, cut last */
 function outer(c){
@@ -330,9 +338,10 @@ function drawMarks(ctx,k){
   const minX=Math.min(...cs.map(c=>c.x)),maxX=Math.max(...cs.map(c=>c.x+c.w));
   const minY=Math.min(...cs.map(c=>c.y)),maxY=Math.max(...cs.map(c=>c.y+c.h));
   const uniq=a=>[...new Set(a.map(v=>+v.toFixed(3)))];
-  const xs=uniq(cs.flatMap(c=>[c.x,c.x+c.w])),ys=uniq(cs.flatMap(c=>[c.y,c.y+c.h]));
+  const inside=(v,P)=>v>0.01&&v<P-0.01;   // a line on the paper edge needs no mark
+  const xs=uniq(cs.flatMap(c=>[c.x,c.x+c.w])).filter(v=>inside(v,PW)),ys=uniq(cs.flatMap(c=>[c.y,c.y+c.h])).filter(v=>inside(v,PH));
   ctx.save();ctx.strokeStyle='#000';ctx.lineWidth=Math.max(1,0.15*k);ctx.setLineDash([]);ctx.beginPath();
-  const Ln=(a,b2,c2,d)=>{ctx.moveTo(a*k,b2*k);ctx.lineTo(c2*k,d*k)};
+  const Ln=(a,b2,c2,d)=>{if(c2-a+d-b2<1)return;ctx.moveTo(a*k,b2*k);ctx.lineTo(c2*k,d*k)};   // every segment runs low→high; skip if no room
   xs.forEach(x=>{Ln(x,2.5,x,minY-o);Ln(x,maxY+o,x,PH-2.5)});
   ys.forEach(y=>{Ln(2.5,y,minX-o,y);Ln(maxX+o,y,PW-2.5,y)});
   gaps(cs,'x').filter(([a,z])=>z-a>2*o).forEach(([a,z])=>ys.forEach(y=>Ln(a+o,y,z-o,y)));
@@ -344,6 +353,12 @@ function drawMarks(ctx,k){
 /* cut order: each crop mark gets its edge's number (1 first line, 2·3 square to it, 4 last edge with the notch),
    placed beside the mark on the card side, in the margins and the gaps; plus a two-line note in a wide margin */
 function cutOrder(c){
+  if(opt.corner){   // top/left are the paper edge (0 = no cut); 1 square to the paper edge, 2 the notch edge, 3 shared edges
+    const o=outer(c),n=(isOut,v)=>isOut?v:3;
+    return L.turn
+      ?[{ax:'x',v:c.x,n:n(o.l,0),dir:1},{ax:'y',v:c.y,n:n(o.t,0),dir:1},{ax:'y',v:c.y+c.h,n:n(o.b,1),dir:-1},{ax:'x',v:c.x+c.w,n:n(o.r,2),dir:-1}]
+      :[{ax:'y',v:c.y,n:n(o.t,0),dir:1},{ax:'x',v:c.x,n:n(o.l,0),dir:1},{ax:'x',v:c.x+c.w,n:n(o.r,1),dir:-1},{ax:'y',v:c.y+c.h,n:n(o.b,2),dir:-1}];
+  }
   if(opt.join){   // outer frame first (1, 2, 3 with the notch), shared edges last (4)
     const o=outer(c),n=(isOut,v)=>isOut?v:4;
     return L.turn
@@ -357,22 +372,30 @@ function cutOrder(c){
 function drawSteps(ctx,k){
   const {PW,PH}=L,seen=new Set();
   ctx.save();ctx.fillStyle='#000';ctx.font=`700 ${2.2*k}px 'IBM Plex Sans KR',sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
+  const room=opt.bleed+1.5+3;   // a margin narrower than this holds no mark, so no number either
+  const mT=L.minY>room,mB=PH-L.maxY>room,mL=L.minX>room,mR=PW-L.maxX>room;
   L.cards.flatMap(cutOrder).forEach(({ax,v,n,dir})=>{
-    const key=ax+v.toFixed(3);if(seen.has(key))return;seen.add(key);
+    const key=ax+v.toFixed(3);if(!n||seen.has(key))return;seen.add(key);
     const p=v+dir*1.3;
     const mids=a=>gaps(L.cards,a).filter(([g0,g1])=>g1-g0>1).map(([g0,g1])=>(g0+g1)/2);
-    if(ax==='x')[4.2,PH-4.2,...mids('y')].forEach(q=>ctx.fillText(n,p*k,q*k));
-    else[4.2,PW-4.2,...mids('x')].forEach(q=>ctx.fillText(n,q*k,p*k));
+    if(ax==='x')[mT&&4.2,mB&&PH-4.2,...mids('y')].filter(Boolean).forEach(q=>ctx.fillText(n,p*k,q*k));
+    else[mL&&4.2,mR&&PW-4.2,...mids('x')].filter(Boolean).forEach(q=>ctx.fillText(n,q*k,p*k));
   });
   const notch=opt.notch&&opt.bleed,span=+(L.turn?L.maxX-L.minX:L.maxY-L.minY).toFixed(1);
-  const t=opt.join
+  const t=opt.corner
+    ?['번호 순서대로 자르기 · 위·왼쪽은 용지 끝 그대로',
+      '1은 용지 끝을 재단기 가이드에 대고, '+(notch?'2는 홈의 색이 바뀌는 경계에 맞춰':`2는 용지 끝에서 ${span}mm`),
+      '3은 그림끼리 맞닿은 경계에 맞춰']
+    :opt.join
     ?['번호 순서대로 자르기 (2는 1번 변을 재단기 가이드에 대고)',
       (notch?'3은 홈의 색이 바뀌는 경계':`3은 1번 변에서 ${span}mm`)+', 4는 그림끼리 맞닿은 경계에 맞춰']
     :['번호 순서대로 자르기 (2, 3은 1번 변을 재단기 가이드에 대고)',
       notch?'4는 홈의 색이 바뀌는 경계에 맞춰':'4는 1번 변에서 85mm로 재서'];
   ctx.fillStyle='#555';ctx.font=`500 ${1.6*k}px 'IBM Plex Sans KR',sans-serif`;ctx.textAlign='left';ctx.textBaseline='top';
   const c0=L.cards[0];   // the note sits in the wide margin beside the first card, clear of every mark
-  if(L.turn)ctx.translate((c0.x+c0.w/2)*k,3.5*k);else{ctx.translate(3.5*k,(c0.y+c0.h/2)*k);ctx.rotate(-Math.PI/2)}
+  if(opt.corner){   // top/left margins are gone: use the bottom (turn) or right margin
+    if(L.turn)ctx.translate((c0.x+c0.w/2)*k,(PH-3.5-(t.length-1)*2.2-1.6)*k);else{ctx.translate((PW-3.5)*k,(c0.y+c0.h/2)*k);ctx.rotate(Math.PI/2)}
+  }else if(L.turn)ctx.translate((c0.x+c0.w/2)*k,3.5*k);else{ctx.translate(3.5*k,(c0.y+c0.h/2)*k);ctx.rotate(-Math.PI/2)}
   const x0=-Math.max(...t.map(line=>ctx.measureText(line).width))/2;   // block centred, lines flush left
   t.forEach((line,i)=>ctx.fillText(line,x0,i*2.2*k));
   ctx.restore();
@@ -508,19 +531,22 @@ function setPaper(paper,o){
   document.getElementById('paperName').textContent=paper==='4x6'?'4×6 (4R, 10×15cm)':'6×8 (6R, 15×20cm)';
   const n=L.cards.length===2?'두':'네',where=L.cards.length===2?(L.turn?'위아래로':'나란히'):'2×2로';
   document.getElementById('orientHint').textContent=`${L.turn?'가로':'세로'} 포카 ${n} 장이 ${where} 들어가요.`+(L.turn?' 가로 그림을 그대로 넣으면 됩니다.':'')
-    +(opt.join?' 카드끼리 붙여서 자르는 횟수를 줄여요. 붙은 변은 도련이 없어서 그림 경계에 정확히 맞춰 잘라야 해요.':'');
+    +(opt.join?' 카드끼리 붙여서 자르는 횟수를 줄여요. 붙은 변은 도련이 없어서 그림 경계에 정확히 맞춰 잘라야 해요.':'')
+    +(opt.corner?' 용지 왼쪽 위 모서리에 붙여서 위·왼쪽은 자르지 않아요. 인화소 출력 위치가 1mm쯤 밀리면 그 두 변 폭도 그만큼 달라져요.':'');
   resetSamples();render();
 }
 document.getElementById('p46').onclick=()=>setPaper('4x6',opt.orient);
 document.getElementById('p68').onclick=()=>setPaper('6x8',opt.orient);
 document.getElementById('oLand').onclick=()=>setPaper(opt.paper,'land');
-function setJoin(j){
-  opt.join=j;document.getElementById('jGap').setAttribute('aria-pressed',!j);document.getElementById('jJoin').setAttribute('aria-pressed',j);
-  document.getElementById('stepsGap').hidden=j;document.getElementById('stepsJoin').hidden=!j;
+function setPlace(pl){   // 'gap' | 'join' | 'corner' (= join, pushed into the paper's top-left corner)
+  opt.join=pl!=='gap';opt.corner=pl==='corner';
+  for(const [id,v] of [['jGap','gap'],['jJoin','join'],['jCorner','corner']])document.getElementById(id).setAttribute('aria-pressed',pl===v);
+  for(const [id,v] of [['stepsGap','gap'],['stepsJoin','join'],['stepsCorner','corner']])document.getElementById(id).hidden=pl!==v;
   setPaper(opt.paper,opt.orient);
 }
-document.getElementById('jGap').onclick=()=>setJoin(false);
-document.getElementById('jJoin').onclick=()=>setJoin(true);
+document.getElementById('jGap').onclick=()=>setPlace('gap');
+document.getElementById('jJoin').onclick=()=>setPlace('join');
+document.getElementById('jCorner').onclick=()=>setPlace('corner');
 document.getElementById('oPort').onclick=()=>setPaper(opt.paper,'port');
 document.getElementById('bleed').onchange=e=>{opt.bleed=+e.target.value;render()};
 document.getElementById('mode').onchange=e=>{opt.mode=e.target.value;document.getElementById('modeHint').textContent=modeHints[opt.mode];render()};
@@ -558,7 +584,7 @@ async function buildFile(){
   const b=await new Promise(res=>c.toBlob(res,type,0.97));
   if(!b)throw new Error('toBlob');
   let buf=new Uint8Array(await b.arrayBuffer());buf=fmt==='png'?pngDpi(buf,dpi):jpgDpi(buf,dpi);
-  const name=`photocard_${opt.paper}_${opt.orient==='land'?'landscape':'portrait'}${opt.join?'_joined':''}_${dpi}dpi.${fmt}`;
+  const name=`photocard_${opt.paper}_${opt.orient==='land'?'landscape':'portrait'}${opt.corner?'_corner':opt.join?'_joined':''}_${dpi}dpi.${fmt}`;
   return{blob:new Blob([buf],{type}),name,w:c.width,h:c.height,dpi,fmt};
 }
 function save(f){
